@@ -5,7 +5,6 @@ import ConfigParser
 import cPickle
 import config
 
-
 class Preference(object):
 
     fields = {
