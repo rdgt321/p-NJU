@@ -8,6 +8,7 @@ from . import __version__
 from userdata import Preference
 from connection import ConnectionManager, ConnectionException, CaptchaException, UpdateStatusException
 import config
+from PIL import Image
 
 # Resource Directory
 if getattr(sys, 'frozen', None):
@@ -160,6 +161,8 @@ THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE."""
             )
 
         prefDialog.Destroy()
+        
+    
 
     def OnOnline(self, event):
         if not self.connection.IsOnline():
@@ -235,22 +238,18 @@ THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE."""
         except ConnectionException as e:
             self.Notification(u"pNJU 操作失败，请重试", e.message)
             return False
-
-        retry = 10
-        while retry:
-            try:
-                if self.connection.DoOnline(self.pref.Get('username'), self.pref.Get('password'), retry % 10):
+        captchaImage = Image.open(self.connection.GetCaptchaImage())
+        captcha = self.recog_captcha(captchaImage)
+        try:
+            if self.connection.DoOnline(self.pref.Get('username'), self.pref.Get('password'), captcha):
                     self.Notification("pNJU", u"登录成功")
                     self.UpdateIcon()
                     return True
-            except CaptchaException:
-                retry = retry - 1
-                continue
-            except ConnectionException as e:
+        except ConnectionException as e:
                 self.Notification(u"pNJU 登录失败", e.message)
                 self.UpdateIcon()
                 return False
-            except:
+        except:
                 raise
         # Auto retry failed if we reach here, turn to traditional method
         return self.DoOnline()
@@ -268,12 +267,56 @@ THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE."""
     def DoForceOffline(self):
         self.UpdateIcon(info=u"工作中...")
         try:
-            if self.connection.DoForceOffline(self.pref.Get('username'), self.pref.Get('password')):
+            self.connection.GetBRASCaptchaImage()  # In order to send our session id to server
+        except ConnectionException as e:
+            self.Notification(u"pNJU 操作失败，请重试", e.message)
+            return False
+        captchaImage = Image.open(self.connection.GetBRASCaptchaImage())
+        captcha = self.recog_captcha(captchaImage);
+        print captcha
+        try:
+            if self.connection.DoForceOffline(self.pref.Get('username'), self.pref.Get('password'), captcha):
                 self.Notification("pNJU", u"已清除其他连接会话")
         except ConnectionException as e:
             self.Notification(u"pNJU 强制下线失败", e.message)
         finally:
             self.UpdateIcon()
+            
+    def recog_captcha(self, captchaImage):
+        captchaImage = captchaImage.convert("RGB");
+        width, height = captchaImage.size
+        img = captchaImage.load()
+        num1 = 0
+        num2 = 0
+        num3 = 0
+        num4 = 0
+        for y in range(height):
+            for x in range(width):
+                if ((x >= 0 and x <= 10) or (x <= 79 and x >= 76)):
+                    continue
+                pixel = img[x, y]
+                P = self.getP(pixel)
+                if P != 442:
+                    continue
+                if (x >= 10 and x <= 25):
+                    num1 += 1
+                if (x >= 26 and x <= 42):
+                    num2 += 1
+                if (x >= 43 and x <= 59):
+                    num3 += 1
+                if (x >= 60 and x <= 75): 
+                    num4 += 1
+                    
+        cnum1 = self.getCrossTime(17, height, width, img)
+        lnum1 = self.getTime(21, height, width, img)
+        cnum2 = self.getCrossTime(33, height, width, img)
+        lnum2 = self.getTime(37, height, width, img)
+        cnum3 = self.getCrossTime(50, height, width, img)
+        lnum3 = self.getCrossTime(67, height, width, img)
+        cnum4 = self.getCrossTime(67, height, width, img)
+        lnum4 = self.getTime(71, height, width, img)
+                
+        return str(self.getInt(num1, cnum1, lnum1)) + str(self.getInt(num2, cnum2, lnum2)) + str(self.getInt(num3, cnum3, lnum3)) + str(self.getInt(num4, cnum4, lnum4))     
 
     def IsLoginInfoSet(self):
         "Check if username and password are set"
@@ -360,8 +403,70 @@ THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE."""
             self.ShowBalloon(title, content, timeout * 1000, wx.ICON_INFORMATION)
         else:
             wx.NotificationMessage(title, content).Show(timeout)
+            
+    def getP(self, pixel):
+        return pixel[0] + pixel[1] + pixel[2]
+    
+    def getCrossTime(self, x, height, width, pixels):
+        In = False
+        time = 0
+        for i in range(height):
+            if (self.getP(pixels[x, i]) == 442):
+                if (not In) :
+                    In = True;
+                    time += 1
+            else :
+                if (In):
+                    In = False
+        return time;
+    
+    def getTime(self, x, height, width, pixels):
+        time = 0;
+        for i in range(height):
+            if (self.getP(pixels[x, i]) == 442):
+                time += 1
+        return 3 if time >= 12 else 2;
 
-
+    def getInt(self, num, cnum, lnum):
+        if num == 81:
+            return 1
+        if num == 96 or num == 100:
+            return 2
+        if num == 97: 
+            return 3
+        if num == 111 or num == 101:
+            return 4
+        if num == 105 or num == 114 or num == 95:
+            return 5
+        if num == 122 or num == 116:
+            return 6
+        if num == 76 or num == 72 or num == 82:
+            return 7
+        if num == 123 or num == 128 or num == 129 :
+            return 8 
+        if num == 117 or num == 119:
+            return 9
+        if num == 125 or num == 112:
+            return 0
+        if num == 92 or num == 98:
+            if cnum == 1:
+                return 1
+            if cnum == 3:
+                if lnum == 2:
+                    return 2
+                else:
+                    return 3
+        if num == 120:
+            if cnum == 2:
+                return 0
+            if cnum == 3:
+                return 6
+        if num == 107:
+            if cnum == 2:
+                return 4
+            if cnum == 3:
+                return 9
+         
 class LoginValidator(wx.PyValidator):
     def Clone(self):
         return LoginValidator()
