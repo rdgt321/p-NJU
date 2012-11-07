@@ -91,7 +91,7 @@ class ConnectionManager(object):
             self.handler.ConnectionError(e)
         return self.HandleResponse(page.data.decode('utf-8'))
 
-    def DoForceOffline(self, username, password):
+    def DoForceOffline(self, username, password, captcha):
         headers = {
             'User-Agent': config.USER_AGENT,
             'Cookie': "selfservice={0}".format(self.session)
@@ -103,6 +103,7 @@ class ConnectionManager(object):
                 {
                     'login_username': username,
                     'login_password': password,
+                    'code':captcha,
                     'action': 'login'
                 },
                 headers=headers,
@@ -153,6 +154,20 @@ class ConnectionManager(object):
         else:
             raise ConnectionException(u"未知错误：" + error)
 
+    def GetBRASCaptchaImage(self):
+        portalHeaders = {
+            'User-Agent': config.USER_AGENT,
+            'Referer': config.BRAS_LOGIN_URL
+        }
+        headers = dict(portalHeaders, Cookie="selfservice={0}".format(self.session))
+        try:
+            image = self.brasConnectionPool.request('GET', config.BRAS_IMG_URL, headers=headers)
+            output = cStringIO.StringIO(image.data)
+            return output
+        except Exception as e:
+            self.handler.ConnectionError(e)
+
+
     def GetCaptchaImage(self):
         headers = dict(self.portalHeaders, Cookie="portalservice={0}".format(self.session))
         try:
@@ -183,7 +198,7 @@ class ConnectionManager(object):
             soup = BeautifulSoup(page.data.decode('utf-8'), "html.parser")
             profile = soup.table.find_all("td")
             studentId = profile[5].text.encode('utf-8')
-            loginTime = '%s-%s' % (date.today().year, profile[6].text.encode('utf-8'), )
+            loginTime = '%s-%s' % (date.today().year, profile[6].text.encode('utf-8'),)
             ip = profile[7].text.encode('utf-8')
             mac = profile[8].text.encode('utf-8')
             location = profile[9].text.encode('utf-8')
